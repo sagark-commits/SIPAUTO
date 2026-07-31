@@ -20,10 +20,12 @@ echo "### tests"
 sipauto version
 pytest -q
 
-echo "### generate"
+echo "### generate (non-interactive iface — use inventory value)"
 for inv in examples/inventories/*.yaml; do
-  sipauto generate -i "$inv"
+  sipauto generate -i "$inv" --no-ask-iface
 done
+echo "### ifaces (local discovery)"
+sipauto ifaces -i examples/inventories/tata_ameyo.yaml || true
 
 echo "### validate + verify"
 for inv in examples/inventories/*.yaml; do
@@ -50,7 +52,7 @@ print("\n".join(reload_services(inv, dry_run=True)))
 PY
 
 echo "### full run generate+verify"
-sipauto run -i examples/inventories/tata_ameyo.yaml -o "$ARTIFACT_DIR/tata-out"
+sipauto run -i examples/inventories/tata_ameyo.yaml -o "$ARTIFACT_DIR/tata-out" --no-ask-iface
 
 cp -a out/demo-tata out/demo-jio out/demo-airtel out/demo-vodafone "$ARTIFACT_DIR/" 2>/dev/null || true
 echo "DEMO COMPLETE — log: $LOG"

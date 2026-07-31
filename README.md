@@ -12,15 +12,23 @@ generate → verify → apply-net (SSH) → apply-sip (SSH; Ameyo write asked) �
 # install (dev)
 pip install -e ".[dev]"
 
-# 1) Generate artifacts from inventory
+# List NICs (local or on call server)
+sipauto ifaces
+sipauto ifaces -i examples/inventories/tata_ameyo.yaml --ssh
+
+# 1) Generate — ASKS which interface to use for SIP (default)
 sipauto generate -i examples/inventories/tata_ameyo.yaml
+# non-interactive / CI:
+sipauto generate -i examples/inventories/tata_ameyo.yaml --no-ask-iface
+# or pin iface and optionally save into YAML:
+sipauto generate -i examples/inventories/tata_ameyo.yaml -I eth1 --save-iface
 
 # 2) Verify (local port probes; use --ssh on the call server)
 sipauto verify -i examples/inventories/tata_ameyo.yaml
 sipauto verify -i examples/inventories/tata_ameyo.yaml --ssh
 
-# 3) Apply network (Rocky/RHEL ifcfg + routes) via SSH
-sipauto apply-net -i examples/inventories/tata_ameyo.yaml --yes
+# 3) Apply network (asks SIP NIC again unless -I / --yes)
+sipauto apply-net -i examples/inventories/tata_ameyo.yaml
 
 # 4) Apply SIP — Ameyo write is OPTIONAL and prompted
 sipauto apply-sip -i examples/inventories/tata_ameyo.yaml
@@ -28,7 +36,7 @@ sipauto apply-sip -i examples/inventories/tata_ameyo.yaml
 # 5) Reload Asterisk SIP/PJSIP/RTP
 sipauto reload -i examples/inventories/tata_ameyo.yaml
 
-# Or one shot (still asks before Ameyo write unless SIPAUTO_AMEYO_WRITE=1)
+# Or one shot (asks SIP NIC, then Ameyo write)
 sipauto run -i examples/inventories/tata_ameyo.yaml --ssh --apply
 ```
 

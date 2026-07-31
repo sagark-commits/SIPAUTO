@@ -27,7 +27,7 @@ def test_cli_generate_validate(tmp_path):
     out = tmp_path / "out"
     r = runner.invoke(app, ["validate", "-i", str(inv)])
     assert r.exit_code == 0, r.output
-    r = runner.invoke(app, ["generate", "-i", str(inv), "-o", str(out)])
+    r = runner.invoke(app, ["generate", "-i", str(inv), "-o", str(out), "--no-ask-iface"])
     assert r.exit_code == 0, r.output
     assert (out / "MANIFEST.json").exists()
     assert (out / "ameyo" / "ameyo_global_sip.conf.txt").exists()
