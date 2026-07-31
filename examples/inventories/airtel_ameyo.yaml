@@ -1,0 +1,33 @@
+site:
+  name: demo-airtel
+  mode: onprem
+
+provider: airtel
+platform: ameyo_asterisk
+sip_driver: chan_sip
+
+network:
+  interface: eth1
+  customer_ip: 10.165.10.10
+  gateway_ip: 10.165.10.1
+  netmask: 255.255.255.252
+  sbc_ip: 10.232.130.170
+  sbc_port: 5060
+  media_ips:
+    - 10.232.130.171
+    - 10.232.131.10
+  sip_transport: udp
+  rtp_start: 10000
+  rtp_end: 40000
+
+sip:
+  pilot: "+911244356190"
+  username: "+911244356190@ims.airtel.in"
+  password: "CHANGE_ME"
+  domain: ims.airtel.in
+  register_expiry: 1800
+  codecs: [g729, alaw]
+
+ameyo:
+  entity_name: airtel
+  context_name: airtel-ctx

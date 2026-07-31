@@ -1,0 +1,31 @@
+site:
+  name: demo-jio
+  mode: onprem
+
+provider: jio
+platform: ameyo_asterisk
+sip_driver: chan_sip
+
+network:
+  interface: eno3
+  customer_ip: 100.64.216.10
+  gateway_ip: 100.64.216.1
+  netmask: 255.255.255.0
+  sbc_ip: 100.64.216.4
+  sbc_port: 5060
+  media_ips:
+    - 100.64.216.5
+  sip_transport: udp
+  rtp_start: 10000
+  rtp_end: 40000
+
+sip:
+  pilot: "4435048777"
+  # Jio often has no password on register
+  password: null
+  register_expiry: 1800
+  codecs: [g729, alaw, ulaw]
+
+ameyo:
+  entity_name: jio
+  context_name: jio-ctx

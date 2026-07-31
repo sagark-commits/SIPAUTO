@@ -1,8 +1,10 @@
 # SIPAUTO — SIP Configuration Automation Plan
 
-**Status:** Draft for review (no implementation yet)  
-**Scope (phase 1):** On-prem Ameyo + Asterisk (`chan_sip`) with Indian carrier Ethernet SIP trunks (Tata / Jio / Airtel)  
-**Later:** Cloud / on-prem / shared deployment modes
+**Status:** MVP implemented (`sipauto` CLI)  
+**Scope (phase 1):** On-prem **Ameyo+Asterisk** and **FreePBX** on **Rocky/RHEL** with Indian carrier Ethernet SIP trunks (**Tata / Jio / Airtel / Vodafone-Idea**)  
+**Flow:** `generate → verify → SSH apply-net/apply-sip/reload` (Ameyo write optional, prompted)  
+**Ports:** SIP TCP+UDP; RTP UDP **10000–40000** both sides  
+**Later:** Cloud / shared deployment modes
 
 ---
 
@@ -272,14 +274,15 @@ Web UI later if desired; CLI first matches on-prem engineer workflow.
 
 ---
 
-## 10. Open decisions (need your confirmation)
+## 10. Decisions (locked)
 
-1. **Primary target:** Ameyo + Asterisk only for MVP, or also raw Asterisk / FreePBX?  
-2. **Apply depth:** Generate-only first, or SSH apply-net + sip reload on day one?  
-3. **Ameyo write path:** Is there an internal API/DB contract we may use, or stay generate-only until engg provides one?  
-4. **Distros in field:** RHEL/CentOS 7 `ifcfg` vs RHEL 8/9 NM vs Ubuntu netplan — which are mandatory for MVP?  
-5. **Providers for MVP:** Tata + Jio + Airtel all three, or start with Tata (most detailed failure docs)?  
-6. **PJSIP:** Any sites already on PJSIP, or all `chan_sip` for now?
+1. **Primary target:** Ameyo + Asterisk **and** FreePBX.  
+2. **Apply depth:** generate + verify + **SSH apply + reload**.  
+3. **Ameyo write:** optional — **ask before write**; generate/verify first. Writes Asterisk include snippets (not full Call Manager UI/DB rows yet).  
+4. **Distros:** Rocky / Red Hat (`ifcfg` + `route-*`).  
+5. **Providers:** Tata, Jio, Airtel, and Vodafone-Idea (Vi; public guides — IP-auth/PJSIP identify; medium confidence).  
+6. **Ports:** check SIP TCP/UDP; RTP UDP range **10000–40000** both sides.  
+7. **PJSIP:** FreePBX/Vi default PJSIP; Ameyo docs remain `chan_sip` with PJSIP artifacts also generated.
 
 ---
 

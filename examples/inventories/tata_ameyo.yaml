@@ -1,0 +1,41 @@
+site:
+  name: demo-tata
+  mode: onprem
+
+provider: tata
+platform: ameyo_asterisk
+sip_driver: chan_sip
+
+network:
+  interface: eth1
+  customer_ip: 10.0.80.98
+  gateway_ip: 10.0.80.97
+  netmask: 255.255.255.252
+  sbc_ip: 10.0.76.11
+  sbc_port: 5060
+  media_ips:
+    - 10.0.76.12
+  sip_transport: both
+  rtp_start: 10000
+  rtp_end: 40000
+
+sip:
+  pilot: "8068167000"
+  # Tata username is usually pilot WITHOUT STD code (docs: 80-68167000 → 68167000)
+  username: "68167000"
+  password: "1234"
+  codecs: [alaw, ulaw, g729]
+  register_expiry: 300
+  dtmf_mode: rfc2833
+
+ameyo:
+  voice_resource: DefaultVR
+  entity_name: tata
+  context_name: tata-ctx
+  asterisk_etc: /etc/asterisk
+
+# Uncomment on real call server:
+# ssh:
+#   host: 10.10.10.50
+#   user: root
+#   key_path: ~/.ssh/id_rsa
