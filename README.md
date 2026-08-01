@@ -4,6 +4,8 @@
 
 Paste a carrier sheet → pick the SIP NIC → generate configs → preflight (GREEN/YELLOW/RED) → SSH apply/reload → watch registry → roll back if needed.
 
+Author — Sagar Kumar (sk)
+
 ## How to use
 
 **Full guide with every command and examples:**  
