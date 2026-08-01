@@ -9,35 +9,58 @@ End-to-end guide with commands and examples for on-prem SIP trunk setup
 
 ### Rocky / Red Hat (recommended for call servers)
 
-`pip` is often missing by default. Install Python tooling first:
+**Requires Python 3.10+.** System `python3` on older hosts is often **3.6** — that cannot run SIPAUTO (`pydantic` v2 / modern typing).
+
+#### One-shot bootstrap (handles SSL trust + Python check)
 
 ```bash
-# as root (or sudo)
-dnf install -y python3 python3-pip python3-devel gcc libffi-devel openssl-devel
+cd /path/to/SIPAUTO-main
+dnf install -y python3.11 python3.11-pip python3.11-devel gcc libffi-devel openssl-devel iproute ethtool || \
+  dnf install -y python3.12 python3.12-pip python3.12-devel gcc libffi-devel openssl-devel iproute ethtool
 
-cd /path/to/SIPAUTO-main   # or SIPAUTO
-python3 -m pip install -U pip setuptools wheel
-python3 -m pip install -e ".[dev]"
+chmod +x scripts/bootstrap_rocky.sh
+./scripts/bootstrap_rocky.sh
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+sipauto version
+```
 
-# CLI lands in ~/.local/bin for non-root, or /usr/local/bin depending on pip
+#### Manual steps (if bootstrap is not used)
+
+```bash
+# 1) Install a NEW enough Python (NOT just python3 if that is 3.6)
+dnf install -y python3.11 python3.11-pip python3.11-devel gcc libffi-devel openssl-devel
+python3.11 --version   # must show 3.11.x
+
+# 2) Pip through corporate SSL intercept / outdated CA — use trusted-host
+cd /path/to/SIPAUTO-main
+python3.11 -m pip install \
+  --trusted-host pypi.org \
+  --trusted-host files.pythonhosted.org \
+  --trusted-host pypi.python.org \
+  -U pip setuptools wheel
+
+python3.11 -m pip install \
+  --trusted-host pypi.org \
+  --trusted-host files.pythonhosted.org \
+  --trusted-host pypi.python.org \
+  -e ".[dev]"
+
 export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 hash -r
 sipauto version
-# if still not found:
-python3 -m sipauto.cli version
-# or
-python3 -c "from sipauto.cli import app; print('ok')"
+# fallback:
+python3.11 -m sipauto.cli --help
 ```
 
-Prefer **`python3 -m pip`** over bare `pip` / `pip3` (avoids “command not found” and wrong Python).
+Prefer **`python3.11 -m pip`** (or 3.12) over bare `pip`.
 
-Optional system packages used by discovery/verify on the box:
+Optional packages for NIC discovery:
 
 ```bash
 dnf install -y iproute ethtool
 ```
 
-### Generic (any Linux with pip already available)
+### Generic (any Linux with Python ≥ 3.10)
 
 ```bash
 cd /path/to/SIPAUTO
@@ -54,14 +77,22 @@ Run the local demo (no real carrier/SSH required):
 pytest -q
 ```
 
-### Troubleshoot: `-bash: pip: command not found`
+### Troubleshoot install errors
 
-| Cause | Fix |
-|-------|-----|
-| `pip` not installed | `dnf install -y python3-pip` then use `python3 -m pip …` |
-| `pip` installed but not on PATH | `export PATH="$HOME/.local/bin:$PATH"` **after** a successful pip install |
-| Wrong command | Use `python3 -m pip install -e ".[dev]"` not `pip install …` |
-| `sipauto: command not found` after install | Same PATH export, or run `python3 -m sipauto.cli --help` |
+| Error | Cause | Fix |
+|-------|--------|-----|
+| `pip: command not found` | No pip on PATH | `dnf install -y python3.11-pip` then `python3.11 -m pip …` |
+| `SSL: CERTIFICATE_VERIFY_FAILED` / `pypi.python.org` | Old CA or TLS intercept | Add `--trusted-host pypi.org --trusted-host files.pythonhosted.org --trusted-host pypi.python.org` |
+| `File 'setup.py' not found` | Ancient pip + only pyproject | Upgrade pip **with Python 3.10+**, or pull latest SIPAUTO (includes `setup.py` shim) |
+| `Directory '.' is not installable` | Same as above / wrong Python | Use `python3.11 -m pip install -e ".[dev]"` from repo root |
+| Python 3.6 / 3.8 default | OS too old for deps | Install `python3.11` package; do **not** use system 3.6 |
+| `sipauto: command not found` after install | PATH | `export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"` or `python3.11 -m sipauto.cli --help` |
+
+Air-gapped / no PyPI: build wheels on a machine with internet (`pip wheel -r requirements.txt -w wheels/`), copy `wheels/` to the call server, then:
+
+```bash
+python3.11 -m pip install --no-index --find-links=./wheels -e ".[dev]"
+```
 
 ---
 

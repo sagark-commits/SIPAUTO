@@ -14,10 +14,14 @@ Author — Sagar Kumar (sk)
 ## Quick start
 
 ```bash
-# Rocky/RHEL — install pip first if missing:
-#   dnf install -y python3 python3-pip
-python3 -m pip install -e ".[dev]"
-export PATH="$HOME/.local/bin:$PATH"
+# Rocky/RHEL needs Python 3.10+ (system python3.6 will NOT work).
+# If SSL to PyPI fails, use scripts/bootstrap_rocky.sh or --trusted-host flags
+# (see docs/HOW_TO_USE.md).
+dnf install -y python3.11 python3.11-pip python3.11-devel gcc
+./scripts/bootstrap_rocky.sh
+# or:
+# python3.11 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -e ".[dev]"
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
 
 # Guided wizard (recommended)
 sipauto wizard --sheet examples/carrier_sheets/tata_sample.txt

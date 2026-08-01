@@ -1,0 +1,7 @@
+# Runtime deps (also declared in pyproject.toml). Install with:
+#   python3.11 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -r requirements.txt
+pydantic>=2.0
+pyyaml>=6.0
+typer>=0.12
+rich>=13.0
+paramiko>=3.0
