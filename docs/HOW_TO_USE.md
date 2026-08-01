@@ -5,76 +5,49 @@ End-to-end guide with commands and examples for on-prem SIP trunk setup
 
 ---
 
-## 1. Install
+## 1. Install (offline-first — no PyPI required)
 
-### Rocky / Red Hat (recommended for call servers)
+SIPAUTO is **dependency-free at runtime**: Python **3.10+ stdlib** + system **OpenSSH** (`ssh`/`scp`).  
+No `pip`, no internet, no `pydantic` / `paramiko` / `typer`.
 
-**Requires Python 3.10+.** System `python3` on older hosts is often **3.6** — that cannot run SIPAUTO (`pydantic` v2 / modern typing).
-
-#### One-shot bootstrap (handles SSL trust + Python check)
+### Rocky / Red Hat call server (copy the tree, then run)
 
 ```bash
-cd /path/to/SIPAUTO-main
-dnf install -y python3.11 python3.11-pip python3.11-devel gcc libffi-devel openssl-devel iproute ethtool || \
-  dnf install -y python3.12 python3.12-pip python3.12-devel gcc libffi-devel openssl-devel iproute ethtool
+cd /path/to/SIPAUTO-main   # or unzip SIPAUTO-main.zip
 
-chmod +x scripts/bootstrap_rocky.sh
-./scripts/bootstrap_rocky.sh
-export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-sipauto version
+# Python 3.6 system python will NOT work — install 3.11:
+dnf install -y python3.11 openssh-clients iproute ethtool
+
+chmod +x scripts/bootstrap_rocky.sh scripts/run_offline.sh
+./scripts/bootstrap_rocky.sh          # offline by default (no pip)
+# smoke:
+./scripts/run_offline.sh version
+./scripts/run_offline.sh wizard --sheet examples/carrier_sheets/tata_sample.txt
 ```
 
-#### Manual steps (if bootstrap is not used)
+Daily use without installing anything into site-packages:
 
 ```bash
-# 1) Install a NEW enough Python (NOT just python3 if that is 3.6)
-dnf install -y python3.11 python3.11-pip python3.11-devel gcc libffi-devel openssl-devel
-python3.11 --version   # must show 3.11.x
-
-# 2) Pip through corporate SSL intercept / outdated CA — use trusted-host
-cd /path/to/SIPAUTO-main
-python3.11 -m pip install \
-  --trusted-host pypi.org \
-  --trusted-host files.pythonhosted.org \
-  --trusted-host pypi.python.org \
-  -U pip setuptools wheel
-
-python3.11 -m pip install \
-  --trusted-host pypi.org \
-  --trusted-host files.pythonhosted.org \
-  --trusted-host pypi.python.org \
-  -e ".[dev]"
-
-export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
-hash -r
-sipauto version
-# fallback:
-python3.11 -m sipauto.cli --help
+export PYTHONPATH=/path/to/SIPAUTO-main/src
+python3.11 -m sipauto version
+python3.11 -m sipauto parse-sheet -s examples/carrier_sheets/tata_sample.txt -o /tmp/inv.yaml -I eth1
 ```
 
-Prefer **`python3.11 -m pip`** (or 3.12) over bare `pip`.
-
-Optional packages for NIC discovery:
+Optional online editable install (only if you want a `sipauto` on PATH and can reach PyPI):
 
 ```bash
-dnf install -y iproute ethtool
+SIPAUTO_ONLINE=1 ./scripts/bootstrap_rocky.sh
+# or: python3.11 -m pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org -e .
 ```
 
 ### Generic (any Linux with Python ≥ 3.10)
 
 ```bash
 cd /path/to/SIPAUTO
-python3 -m pip install -e ".[dev]"
-export PATH="$HOME/.local/bin:$PATH"
-sipauto version
-```
-
-Run the local demo (no real carrier/SSH required):
-
-```bash
+export PYTHONPATH=$PWD/src
+python3 -m sipauto version
+# optional tests (needs pytest once): python3 -m pip install pytest && pytest -q
 ./scripts/demo.sh
-# or
-pytest -q
 ```
 
 ### Troubleshoot install errors

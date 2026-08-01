@@ -5,24 +5,22 @@ from __future__ import annotations
 import re
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
-from rich.console import Console
-from rich.table import Table
-
 from sipauto.models import Inventory, SSHConfig
-from sipauto.ssh import SSHClient
+from sipauto.ssh import SSHClient, SSHError
+from sipauto.util.console import ask, confirm, console, print_table
+from sipauto.util import simple_yaml
 
-console = Console()
-
-# Skip virtual/loopback noise by default (still shown if --all-ifaces)
+# Skip virtual/loopback noise by default
 _SKIP_PREFIXES = (
     "lo",
     "docker",
     "br-",
     "veth",
     "virbr",
-    " tun",
+    "tun",
     "tap",
     "cni",
     "flannel",
@@ -37,7 +35,7 @@ class NicInfo:
     state: str = "UNKNOWN"
     mac: str = ""
     ipv4: list[str] = field(default_factory=list)
-    link: Optional[str] = None  # yes / no
+    link: Optional[str] = None
     speed: Optional[str] = None
     duplex: Optional[str] = None
     raw_ethtool: str = ""
@@ -45,25 +43,23 @@ class NicInfo:
     @property
     def summary(self) -> str:
         addrs = ",".join(self.ipv4) if self.ipv4 else "-"
-        link = self.link or "?"
-        speed = self.speed or "?"
-        duplex = self.duplex or "?"
-        return f"{self.name} state={self.state} ipv4={addrs} link={link} {speed} {duplex}"
+        return (
+            f"{self.name} state={self.state} ipv4={addrs} "
+            f"link={self.link or '?'} {self.speed or '?'} {self.duplex or '?'}"
+        )
 
 
 def _should_skip(name: str, include_virtual: bool) -> bool:
     if include_virtual:
         return name == "lo"
     for p in _SKIP_PREFIXES:
-        if name == p.strip() or name.startswith(p.strip()):
+        if name == p or name.startswith(p):
             return True
     return False
 
 
 def parse_ip_link(text: str) -> dict[str, NicInfo]:
-    """Parse `ip -o link show` output."""
     nics: dict[str, NicInfo] = {}
-    # 2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 ... \    link/ether aa:bb:...
     line_pat = re.compile(
         r"^\d+:\s+([^:@]+)(?:@[^:]+)?:\s+<([^>]*)>",
         re.IGNORECASE | re.MULTILINE,
@@ -83,8 +79,6 @@ def parse_ip_link(text: str) -> dict[str, NicInfo]:
 
 
 def parse_ip_addr(text: str, nics: dict[str, NicInfo]) -> None:
-    """Parse `ip -o -4 addr show` into nic.ipv4."""
-    # 2: eth0    inet 10.0.0.5/30 brd ...
     pat = re.compile(r"^\d+:\s+(\S+)\s+inet\s+(\S+)", re.MULTILINE)
     for m in pat.finditer(text):
         name = m.group(1)
@@ -127,7 +121,6 @@ def discover_interfaces(
     include_virtual: bool = False,
     probe_ethtool: bool = True,
 ) -> list[NicInfo]:
-    """List NICs on local machine or remote call server."""
     if ssh:
         with SSHClient(ssh) as client:
             link_out = client.run("ip -o link show").stdout
@@ -156,36 +149,33 @@ def discover_interfaces(
                 if "Link detected" in et or "Speed:" in et:
                     parse_ethtool(et, nic)
 
-    result = [
-        n for n in nics.values() if not _should_skip(n.name, include_virtual)
-    ]
+    result = [n for n in nics.values() if not _should_skip(n.name, include_virtual)]
     result.sort(key=lambda n: n.name)
     return result
 
 
 def print_interfaces(nics: list[NicInfo], default: Optional[str] = None) -> None:
-    table = Table(title="Network interfaces (candidate SIP NICs)")
-    table.add_column("#", justify="right")
-    table.add_column("Name")
-    table.add_column("State")
-    table.add_column("IPv4")
-    table.add_column("Link")
-    table.add_column("Speed")
-    table.add_column("Duplex")
+    rows = []
     for idx, nic in enumerate(nics, start=1):
         marker = " *" if default and nic.name == default else ""
-        table.add_row(
-            str(idx),
-            nic.name + marker,
-            nic.state,
-            ",".join(nic.ipv4) or "-",
-            nic.link or "?",
-            nic.speed or "?",
-            nic.duplex or "?",
+        rows.append(
+            [
+                str(idx),
+                nic.name + marker,
+                nic.state,
+                ",".join(nic.ipv4) or "-",
+                nic.link or "?",
+                nic.speed or "?",
+                nic.duplex or "?",
+            ]
         )
-    console.print(table)
+    print_table(
+        "Network interfaces (candidate SIP NICs)",
+        ["#", "Name", "State", "IPv4", "Link", "Speed", "Duplex"],
+        rows,
+    )
     if default:
-        console.print(f"[dim]* inventory default: {default}[/dim]")
+        console.print(f"* inventory default: {default}")
 
 
 def choose_interface(
@@ -197,14 +187,6 @@ def choose_interface(
     include_virtual: bool = False,
     non_interactive_default: bool = False,
 ) -> str:
-    """
-    Resolve SIP interface.
-
-    Priority:
-      1) explicit --interface
-      2) interactive prompt (if ask and TTY)
-      3) inventory.network.interface
-    """
     if interface:
         inv.network.interface = interface
         return interface
@@ -215,89 +197,81 @@ def choose_interface(
 
     ssh_cfg = inv.ssh if use_ssh and inv.ssh else None
     where = f"SSH {ssh_cfg.host}" if ssh_cfg else "local host"
-    console.print(f"[cyan]Discovering interfaces on {where}…[/cyan]")
+    console.print(f"Discovering interfaces on {where}…")
     try:
         nics = discover_interfaces(ssh=ssh_cfg, include_virtual=include_virtual)
-    except Exception as exc:  # noqa: BLE001 — show and fall back
-        console.print(f"[yellow]Could not discover interfaces ({exc}). Using inventory: {default}[/yellow]")
-        return default
+    except (SSHError, Exception) as exc:  # noqa: BLE001
+        console.print(f"Could not discover interfaces ({exc}). Using inventory: {default}")
+        # fall back to local if SSH failed
+        if ssh_cfg:
+            try:
+                nics = discover_interfaces(ssh=None, include_virtual=include_virtual)
+                console.print("Falling back to LOCAL interface list.")
+            except Exception:
+                return default
+        else:
+            return default
 
     if not nics:
-        console.print(f"[yellow]No interfaces found. Using inventory: {default}[/yellow]")
+        console.print(f"No interfaces found. Using inventory: {default}")
         return default
 
-    print_interfaces(nics, default=default)
+    # Auto-select when only one physical NIC and default missing/wrong
+    if len(nics) == 1:
+        chosen = nics[0].name
+        console.print(f"Only one candidate NIC — auto-selected: {chosen}")
+        inv.network.interface = chosen
+        console.print(nics[0].summary)
+        return chosen
 
-    # Highlight link-down warning for default
+    print_interfaces(nics, default=default)
     for nic in nics:
         if nic.name == default and nic.link == "no":
             console.print(
-                f"[yellow]Warning: inventory iface {default} has link=no "
-                "(check cable / mux speed / duplex with carrier).[/yellow]"
+                f"Warning: inventory iface {default} has link=no "
+                "(check cable / mux speed / duplex with carrier)."
             )
 
     names = {n.name for n in nics}
+    # prefer default if present, else first UP+link yes
+    if default not in names:
+        up = next((n.name for n in nics if n.state == "UP" and n.link != "no"), nics[0].name)
+        default = up
+
     while True:
-        raw = console.input(
-            f"Which interface should be used for SIP? [{default}]: "
-        ).strip()
-        if not raw:
-            chosen = default
-            break
+        raw = ask("Which interface should be used for SIP?", default=default)
         if raw.isdigit():
             idx = int(raw)
             if 1 <= idx <= len(nics):
                 chosen = nics[idx - 1].name
                 break
-            console.print(f"[red]Pick a number 1–{len(nics)} or an interface name.[/red]")
+            console.print(f"Pick a number 1–{len(nics)} or an interface name.")
             continue
         if raw in names:
             chosen = raw
             break
-        # allow typing an iface not listed (vlan etc.)
         if re.match(r"^[A-Za-z0-9._-]+$", raw):
-            if console.input(f"[yellow]{raw} not in list. Use it anyway? [y/N]: [/yellow]").strip().lower() in (
-                "y",
-                "yes",
-            ):
+            if confirm(f"{raw} not in list. Use it anyway?", default=False):
                 chosen = raw
                 break
             continue
-        console.print("[red]Invalid interface name.[/red]")
+        console.print("Invalid interface name.")
 
     inv.network.interface = chosen
-    # Probe selected
     selected = next((n for n in nics if n.name == chosen), None)
     if selected:
-        console.print(f"[green]Selected SIP interface:[/green] {selected.summary}")
+        console.print(f"Selected SIP interface: {selected.summary}")
         if selected.link == "no":
             console.print(
-                "[yellow]Link is down on selected NIC — carrier mux/cable/VLAN may need attention "
-                "before apply-net.[/yellow]"
-            )
-        if selected.speed and selected.speed.lower() not in (
-            "1000mb/s",
-            "1000mbps",
-            "1gb/s",
-            "unknown!",
-            "unknown",
-        ):
-            # Tata docs: 100 vs 1000 mismatch is common
-            console.print(
-                f"[yellow]Speed is {selected.speed}. For Tata Ethernet SIP, confirm mux supports this.[/yellow]"
+                "Link is down on selected NIC — carrier mux/cable/VLAN may need attention."
             )
     else:
-        console.print(f"[green]Selected SIP interface:[/green] {chosen}")
+        console.print(f"Selected SIP interface: {chosen}")
     return chosen
 
 
 def save_interface_to_inventory(path: str, interface: str) -> None:
-    """Update network.interface in YAML inventory (preserves other keys best-effort)."""
-    from pathlib import Path
-
-    import yaml
-
     p = Path(path)
-    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    data = simple_yaml.loads_file(str(p)) or {}
     data.setdefault("network", {})["interface"] = interface
-    p.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    p.write_text(simple_yaml.dump(data) + "\n", encoding="utf-8")

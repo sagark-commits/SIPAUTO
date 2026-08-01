@@ -1,19 +1,16 @@
 from pathlib import Path
 
-import yaml
-from typer.testing import CliRunner
-
-from sipauto.cli import app
+from sipauto.cli import invoke
 from sipauto.models import Inventory
 from sipauto.network.ports import PortChecker
+from sipauto.util import simple_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples" / "inventories"
-runner = CliRunner()
 
 
 def test_port_checker_rtp_policy():
-    data = yaml.safe_load((EXAMPLES / "tata_ameyo.yaml").read_text())
+    data = simple_yaml.loads_file(str(EXAMPLES / "tata_ameyo.yaml"))
     inv = Inventory.model_validate(data)
     report = PortChecker(inv).check_local()
     names = {c.name for c in report.checks}
@@ -25,12 +22,17 @@ def test_port_checker_rtp_policy():
 def test_cli_generate_validate(tmp_path):
     inv = EXAMPLES / "tata_ameyo.yaml"
     out = tmp_path / "out"
-    r = runner.invoke(app, ["validate", "-i", str(inv)])
+    r = invoke(["validate", "-i", str(inv)])
     assert r.exit_code == 0, r.output
-    r = runner.invoke(app, ["generate", "-i", str(inv), "-o", str(out), "--no-ask-iface"])
+    r = invoke(["generate", "-i", str(inv), "-o", str(out), "--no-ask-iface"])
     assert r.exit_code == 0, r.output
     assert (out / "MANIFEST.json").exists()
     assert (out / "ameyo" / "ameyo_global_sip.conf.txt").exists()
-    r = runner.invoke(app, ["verify", "-i", str(inv), "-o", str(out)])
-    # verify may exit 1 if local probes to private SBC fail — accept 0 or 1 with report
+    r = invoke(["verify", "-i", str(inv), "-o", str(out)])
     assert (out / "verify_report.json").exists()
+
+
+def test_offline_module_version():
+    r = invoke(["version"])
+    assert r.exit_code == 0
+    assert "0.1.0" in r.output

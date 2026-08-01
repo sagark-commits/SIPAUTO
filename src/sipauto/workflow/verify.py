@@ -7,7 +7,7 @@ from pathlib import Path
 from sipauto.models import CheckResult, Inventory, RunReport
 from sipauto.network.ports import PortChecker
 from sipauto.platforms.asterisk import registry_check_command
-from sipauto.ssh import SSHClient
+from sipauto.ssh import SSHClient, SSHError
 
 
 def verify(
@@ -52,52 +52,64 @@ def verify(
     # Port checks
     checker = PortChecker(inv)
     if use_ssh and inv.ssh:
-        with SSHClient(inv.ssh) as client:
-            script = "\n".join(checker.remote_check_commands())
-            # also ping gateway + sbc
-            script = (
-                f"ping -c 2 -W 2 {inv.network.gateway_ip}; "
-                f"ping -c 2 -W 2 {inv.network.sbc_ip}; "
-                + script
-                + f"; {registry_check_command(inv)} || true"
-            )
-            result = client.run(script)
-            remote_report = checker.parse_remote_output(result.stdout + "\n" + result.stderr)
-            checks.extend(remote_report.checks)
+        try:
+            with SSHClient(inv.ssh) as client:
+                script = "\n".join(checker.remote_check_commands())
+                script = (
+                    f"ping -c 2 -W 2 {inv.network.gateway_ip}; "
+                    f"ping -c 2 -W 2 {inv.network.sbc_ip}; "
+                    + script
+                    + f"; {registry_check_command(inv)} || true"
+                )
+                result = client.run(script)
+                remote_report = checker.parse_remote_output(result.stdout + "\n" + result.stderr)
+                checks.extend(remote_report.checks)
+                checks.append(
+                    CheckResult(
+                        name="gateway ping",
+                        ok="1 received" in result.stdout
+                        or "2 received" in result.stdout
+                        or " bytes from " in result.stdout,
+                        detail=f"ping {inv.network.gateway_ip}",
+                    )
+                )
+                checks.append(
+                    CheckResult(
+                        name="sbc ping",
+                        ok=result.stdout.count("bytes from") >= 1
+                        or "1 received" in result.stdout
+                        or "2 received" in result.stdout,
+                        detail=f"ping {inv.network.sbc_ip}",
+                    )
+                )
+                reg_out = result.stdout
+                registered = "Registered" in reg_out or "registered" in reg_out
+                checks.append(
+                    CheckResult(
+                        name="sip registry",
+                        ok=registered,
+                        detail="Looked for Registered in Asterisk registry output",
+                        severity="warn"
+                        if inv.provider.value in ("jio", "vodafone") and not registered
+                        else "error",
+                    )
+                )
+                if not registered and inv.provider.value in ("jio", "vodafone"):
+                    next_actions.append(
+                        "Jio/Vi may work without classic Registered state — run a test call"
+                    )
+        except (SSHError, ValueError) as exc:
             checks.append(
                 CheckResult(
-                    name="gateway ping",
-                    ok="1 received" in result.stdout
-                    or "2 received" in result.stdout
-                    or " bytes from " in result.stdout,
-                    detail=f"ping {inv.network.gateway_ip}",
+                    name="ssh",
+                    ok=False,
+                    detail=str(exc),
+                    severity="warn",
                 )
             )
-            checks.append(
-                CheckResult(
-                    name="sbc ping",
-                    ok=result.stdout.count("bytes from") >= 1
-                    or "1 received" in result.stdout
-                    or "2 received" in result.stdout,
-                    detail=f"ping {inv.network.sbc_ip}",
-                )
-            )
-            reg_out = result.stdout
-            registered = "Registered" in reg_out or "registered" in reg_out
-            checks.append(
-                CheckResult(
-                    name="sip registry",
-                    ok=registered,
-                    detail="Looked for Registered in Asterisk registry output",
-                    severity="warn"
-                    if inv.provider.value in ("jio", "vodafone") and not registered
-                    else "error",
-                )
-            )
-            if not registered and inv.provider.value in ("jio", "vodafone"):
-                next_actions.append(
-                    "Jio/Vi may work without classic Registered state — run a test call"
-                )
+            next_actions.append("Fix SSH auth or run locally on the call server without --ssh")
+            local = checker.check_local()
+            checks.extend(local.checks)
     else:
         local = checker.check_local()
         checks.extend(local.checks)
