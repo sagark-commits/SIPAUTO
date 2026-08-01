@@ -6,7 +6,7 @@ from sipauto.models import CheckResult, Inventory, Provider, RunReport
 from sipauto.network.interfaces import discover_interfaces
 from sipauto.network.ports import PortChecker
 from sipauto.providers import get_provider
-from sipauto.ssh import SSHClient
+from sipauto.ssh import SSHClient, SSHError
 
 
 def run_preflight(inv: Inventory, *, use_ssh: bool = False) -> RunReport:
@@ -111,105 +111,115 @@ def run_preflight(inv: Inventory, *, use_ssh: bool = False) -> RunReport:
     # Reachability + ports + firewall via SSH when available
     checker = PortChecker(inv)
     if ssh_cfg:
-        with SSHClient(ssh_cfg) as client:
-            script = "\n".join(
-                [
-                    f"ping -c 2 -W 2 {inv.network.gateway_ip} || true",
-                    f"echo __SEP__",
-                    f"ping -c 2 -W 2 {inv.network.sbc_ip} || true",
-                    f"echo __SEP__",
-                    *checker.remote_check_commands(),
-                    f"echo __SEP__",
-                    f"ip route get {inv.network.sbc_ip} 2>/dev/null || true",
-                    f"echo __SEP__",
-                    *[
-                        f"ip route get {mip} 2>/dev/null || echo MISSING_ROUTE {mip}"
-                        for mip in inv.network.media_ips[:20]
-                    ],
-                    f"echo __SEP__",
-                    "grep -E 'ims\\.airtel\\.in' /etc/hosts 2>/dev/null || echo NO_AIRTEL_HOSTS",
-                ]
-            )
-            out = client.run(script).stdout
-            parts = out.split("__SEP__")
-            gw_out = parts[0] if parts else ""
-            sbc_out = parts[1] if len(parts) > 1 else ""
-            port_blob = parts[2] if len(parts) > 2 else out
-            route_blob = "\n".join(parts[3:]) if len(parts) > 3 else ""
-
-            checks.append(
-                CheckResult(
-                    name="ping_gateway",
-                    ok=_ping_ok(gw_out),
-                    detail=f"ping {inv.network.gateway_ip}",
+        try:
+            with SSHClient(ssh_cfg) as client:
+                script = "\n".join(
+                    [
+                        f"ping -c 2 -W 2 {inv.network.gateway_ip} || true",
+                        "echo __SEP__",
+                        f"ping -c 2 -W 2 {inv.network.sbc_ip} || true",
+                        "echo __SEP__",
+                        *checker.remote_check_commands(),
+                        "echo __SEP__",
+                        f"ip route get {inv.network.sbc_ip} 2>/dev/null || true",
+                        "echo __SEP__",
+                        *[
+                            f"ip route get {mip} 2>/dev/null || echo MISSING_ROUTE {mip}"
+                            for mip in inv.network.media_ips[:20]
+                        ],
+                        "echo __SEP__",
+                        "grep -E 'ims\\.airtel\\.in' /etc/hosts 2>/dev/null || echo NO_AIRTEL_HOSTS",
+                    ]
                 )
-            )
-            if not _ping_ok(gw_out):
-                next_actions.append("Fix SIP NIC IP/mask or cable — gateway not reachable")
+                out = client.run(script).stdout
+                parts = out.split("__SEP__")
+                gw_out = parts[0] if parts else ""
+                sbc_out = parts[1] if len(parts) > 1 else ""
+                port_blob = parts[2] if len(parts) > 2 else out
+                route_blob = "\n".join(parts[3:]) if len(parts) > 3 else ""
 
-            checks.append(
-                CheckResult(
-                    name="ping_sbc",
-                    ok=_ping_ok(sbc_out),
-                    detail=f"ping {inv.network.sbc_ip}",
+                checks.append(
+                    CheckResult(
+                        name="ping_gateway",
+                        ok=_ping_ok(gw_out),
+                        detail=f"ping {inv.network.gateway_ip}",
+                    )
                 )
-            )
-            if not _ping_ok(sbc_out):
-                next_actions.append("Add/fix host route to SBC via gateway on SIP NIC")
+                if not _ping_ok(gw_out):
+                    next_actions.append("Fix SIP NIC IP/mask or cable — gateway not reachable")
 
-            remote_ports = checker.parse_remote_output(port_blob)
-            checks.extend(remote_ports.checks)
+                checks.append(
+                    CheckResult(
+                        name="ping_sbc",
+                        ok=_ping_ok(sbc_out),
+                        detail=f"ping {inv.network.sbc_ip}",
+                    )
+                )
+                if not _ping_ok(sbc_out):
+                    next_actions.append("Add/fix host route to SBC via gateway on SIP NIC")
 
-            # media routes
-            for mip in inv.network.media_ips:
-                missing = f"MISSING_ROUTE {mip}" in route_blob
-                # also ok if route get shows via gateway
-                ok = (not missing) and (
-                    mip in route_blob or inv.network.gateway_ip in route_blob
+                remote_ports = checker.parse_remote_output(port_blob)
+                checks.extend(remote_ports.checks)
+
+                for mip in inv.network.media_ips:
+                    missing = f"MISSING_ROUTE {mip}" in route_blob
+                    ok = (not missing) and (
+                        mip in route_blob or inv.network.gateway_ip in route_blob
+                    )
+                    checks.append(
+                        CheckResult(
+                            name=f"route_media_{mip}",
+                            ok=ok,
+                            detail="media host route",
+                            severity="warn",
+                        )
+                    )
+                    if not ok:
+                        next_actions.append(
+                            f"Add media route: {mip}/32 via {inv.network.gateway_ip}"
+                        )
+
+                if inv.provider == Provider.AIRTEL:
+                    hosts_ok = (
+                        "NO_AIRTEL_HOSTS" not in route_blob and "ims.airtel.in" in route_blob
+                    )
+                    checks.append(
+                        CheckResult(
+                            name="airtel_hosts_file",
+                            ok=hosts_ok,
+                            detail="/etc/hosts ims.airtel.in",
+                            severity="warn",
+                        )
+                    )
+                    if not hosts_ok:
+                        next_actions.append(
+                            f"Add hosts entry: {inv.network.sbc_ip} "
+                            f"{inv.sip.domain or 'ims.airtel.in'}"
+                        )
+
+                rtp_open_hint = (
+                    str(inv.network.rtp_start) in port_blob
+                    or "rtpstart" in port_blob
+                    or "firewall-cmd" in port_blob
                 )
                 checks.append(
                     CheckResult(
-                        name=f"route_media_{mip}",
-                        ok=ok,
-                        detail="media host route",
-                        severity="warn",
+                        name="rtp_firewall_hint",
+                        ok=True,
+                        detail=(
+                            f"Ensure UDP {inv.network.rtp_start}-{inv.network.rtp_end} "
+                            f"BOTH sides. Remote scan hint={'seen' if rtp_open_hint else 'unclear'}"
+                        ),
+                        severity="info",
                     )
                 )
-                if not ok:
-                    next_actions.append(f"Add media route: {mip}/32 via {inv.network.gateway_ip}")
-
-            if inv.provider == Provider.AIRTEL:
-                hosts_ok = "NO_AIRTEL_HOSTS" not in route_blob and "ims.airtel.in" in route_blob
-                checks.append(
-                    CheckResult(
-                        name="airtel_hosts_file",
-                        ok=hosts_ok,
-                        detail="/etc/hosts ims.airtel.in",
-                        severity="warn",
-                    )
-                )
-                if not hosts_ok:
-                    next_actions.append(
-                        f"Add hosts entry: {inv.network.sbc_ip} {inv.sip.domain or 'ims.airtel.in'}"
-                    )
-
-            # firewalld/iptables mention of rtp range — soft
-            rtp_open_hint = (
-                str(inv.network.rtp_start) in port_blob
-                or "rtpstart" in port_blob
-                or "firewall-cmd" in port_blob
-            )
+        except (SSHError, ValueError) as exc:
             checks.append(
-                CheckResult(
-                    name="rtp_firewall_hint",
-                    ok=True,
-                    detail=(
-                        f"Ensure UDP {inv.network.rtp_start}-{inv.network.rtp_end} "
-                        f"BOTH sides. Remote scan hint={'seen' if rtp_open_hint else 'unclear'}"
-                    ),
-                    severity="info",
-                )
+                CheckResult(name="ssh", ok=False, detail=str(exc), severity="warn")
             )
+            next_actions.append("Fix SSH or run preflight locally on the call server")
+            local = checker.check_local()
+            checks.extend(local.checks)
     else:
         local = checker.check_local()
         checks.extend(local.checks)

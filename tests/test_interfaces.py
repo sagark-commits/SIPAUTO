@@ -53,7 +53,7 @@ def test_parse_ethtool():
     assert nic.duplex == "Full"
 
 
-def test_choose_interface_explicit_skips_prompt():
+def test_choose_interface_explicit_noninteractive():
     inv = Inventory(
         site=Site(name="t"),
         provider=Provider.TATA,
@@ -65,6 +65,20 @@ def test_choose_interface_explicit_skips_prompt():
         ),
         sip=SipConfig(pilot="1234", password="1234"),
     )
-    chosen = choose_interface(inv, ask=True, interface="eno3")
+    chosen = choose_interface(inv, ask=False, interface="eno3", non_interactive_default=True)
     assert chosen == "eno3"
     assert inv.network.interface == "eno3"
+
+
+def test_prompt_sip_interface_noninteractive_fallback(monkeypatch):
+    from sipauto.network import interfaces as iface_mod
+    from sipauto.network.interfaces import NicInfo, prompt_sip_interface
+
+    fake = [
+        NicInfo(name="ens192", state="UP", ipv4=["10.1.1.2/30"], link="yes", speed="1000Mb/s"),
+        NicInfo(name="ens224", state="UP", ipv4=[], link="yes", speed="100Mb/s"),
+    ]
+    monkeypatch.setattr(iface_mod, "discover_interfaces", lambda **kwargs: fake)
+    # prefer missing → pick first UP
+    chosen = prompt_sip_interface(prefer="eth9", interactive=False)
+    assert chosen == "ens192"
