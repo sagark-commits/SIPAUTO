@@ -1,0 +1,10 @@
+AIRTEL SIP Configuration
+Pilot Number: +911244356190
+Username: +911244356190@ims.airtel.in
+Password: CHANGE_ME
+Customer IP: 10.165.10.10
+Gateway: 10.165.10.1
+Net-Mask: 255.255.255.252
+SIP server IP: 10.232.130.170
+Domain: ims.airtel.in
+Media IPs: 10.232.130.171, 10.232.131.10

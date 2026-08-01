@@ -1,0 +1,13 @@
+TATA SIP Provisioning Details
+Customer Name: DEMO CORP
+Customer IP: 10.0.80.98
+Subnet Mask: 255.255.255.252
+Gateway IP: 10.0.80.97
+Vlan/port: 364
+SBC IP: 10.0.76.11
+SIP Port: 5060
+Pilot no.: 8068167000
+DID Range: 8068167000 to 8068167399
+Bandwidth / channels: 12 Mbps / 120 channels
+Password: 1234
+Media IP: 10.0.76.12

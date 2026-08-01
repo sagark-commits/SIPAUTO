@@ -1,0 +1,32 @@
+site:
+  name: demo-vodafone
+  mode: onprem
+
+provider: vodafone
+platform: freepbx
+sip_driver: pjsip
+
+network:
+  interface: eth1
+  customer_ip: 10.229.37.20
+  gateway_ip: 10.229.37.1
+  netmask: 255.255.255.0
+  sbc_ip: 10.229.37.12
+  sbc_port: 5060
+  media_ips:
+    - 10.229.37.13
+  sip_transport: udp
+  rtp_start: 10000
+  rtp_end: 40000
+
+sip:
+  pilot: "02212345678"
+  # Vi India often IP-auth — leave password null / require_register false
+  password: null
+  require_register: false
+  codecs: [ulaw, alaw]
+
+freepbx:
+  trunk_name: vodafonesiptrunk
+  use_pjsip: true
+  asterisk_etc: /etc/asterisk

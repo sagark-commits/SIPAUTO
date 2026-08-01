@@ -1,0 +1,8 @@
+Jio SIP Configuration Sheet
+Customer IP: 100.64.216.10
+Gateway IP: 100.64.216.1
+SUBNET MASK: 255.255.255.0
+SBC IP: 100.64.216.4
+Media IP: 100.64.216.5
+Pilot Number: 4435048777
+Channels: 30
