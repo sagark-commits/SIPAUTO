@@ -7,11 +7,41 @@ End-to-end guide with commands and examples for on-prem SIP trunk setup
 
 ## 1. Install
 
+### Rocky / Red Hat (recommended for call servers)
+
+`pip` is often missing by default. Install Python tooling first:
+
+```bash
+# as root (or sudo)
+dnf install -y python3 python3-pip python3-devel gcc libffi-devel openssl-devel
+
+cd /path/to/SIPAUTO-main   # or SIPAUTO
+python3 -m pip install -U pip setuptools wheel
+python3 -m pip install -e ".[dev]"
+
+# CLI lands in ~/.local/bin for non-root, or /usr/local/bin depending on pip
+export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
+hash -r
+sipauto version
+# if still not found:
+python3 -m sipauto.cli version
+# or
+python3 -c "from sipauto.cli import app; print('ok')"
+```
+
+Prefer **`python3 -m pip`** over bare `pip` / `pip3` (avoids “command not found” and wrong Python).
+
+Optional system packages used by discovery/verify on the box:
+
+```bash
+dnf install -y iproute ethtool
+```
+
+### Generic (any Linux with pip already available)
+
 ```bash
 cd /path/to/SIPAUTO
-pip install -e ".[dev]"
-
-# ensure CLI is on PATH
+python3 -m pip install -e ".[dev]"
 export PATH="$HOME/.local/bin:$PATH"
 sipauto version
 ```
@@ -23,6 +53,15 @@ Run the local demo (no real carrier/SSH required):
 # or
 pytest -q
 ```
+
+### Troubleshoot: `-bash: pip: command not found`
+
+| Cause | Fix |
+|-------|-----|
+| `pip` not installed | `dnf install -y python3-pip` then use `python3 -m pip …` |
+| `pip` installed but not on PATH | `export PATH="$HOME/.local/bin:$PATH"` **after** a successful pip install |
+| Wrong command | Use `python3 -m pip install -e ".[dev]"` not `pip install …` |
+| `sipauto: command not found` after install | Same PATH export, or run `python3 -m sipauto.cli --help` |
 
 ---
 

@@ -14,7 +14,9 @@ Author — Sagar Kumar (sk)
 ## Quick start
 
 ```bash
-pip install -e ".[dev]"
+# Rocky/RHEL — install pip first if missing:
+#   dnf install -y python3 python3-pip
+python3 -m pip install -e ".[dev]"
 export PATH="$HOME/.local/bin:$PATH"
 
 # Guided wizard (recommended)
