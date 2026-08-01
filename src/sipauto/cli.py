@@ -24,7 +24,6 @@ from sipauto.network.interfaces import (
     save_interface_to_inventory,
 )
 from sipauto.parser.carrier_sheet import parse_carrier_sheet
-from sipauto.util import simple_yaml
 from sipauto.util.console import ask_yes_no, console, print_table
 from sipauto.workflow.apply import apply_network, apply_sip, reload_services
 from sipauto.workflow.generate import generate
