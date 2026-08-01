@@ -27,6 +27,19 @@ done
 echo "### ifaces (local discovery)"
 sipauto ifaces -i examples/inventories/tata_ameyo.yaml || true
 
+echo "### parse-sheet (Tata/Jio/Airtel samples)"
+sipauto parse-sheet -s examples/carrier_sheets/tata_sample.txt -o "$ARTIFACT_DIR/parsed-tata.yaml" --site demo-parsed-tata
+sipauto parse-sheet -s examples/carrier_sheets/jio_sample.txt -o "$ARTIFACT_DIR/parsed-jio.yaml" --site demo-parsed-jio --provider jio
+sipauto parse-sheet -s examples/carrier_sheets/airtel_sample.txt -o "$ARTIFACT_DIR/parsed-airtel.yaml" --site demo-parsed-airtel --provider airtel
+
+echo "### preflight (local)"
+sipauto preflight -i examples/inventories/tata_ameyo.yaml || true
+
+echo "### diagnose playbooks"
+sipauto diagnose "SIP/2.0 407 Proxy Authentication Required" || true
+sipauto diagnose "outbound 403 Forbidden" || true
+sipauto diagnose "480 Temporarily Unavailable" || true
+
 echo "### validate + verify"
 for inv in examples/inventories/*.yaml; do
   sipauto validate -i "$inv" || true

@@ -76,10 +76,14 @@ class SSHClient:
             sftp.close()
 
     def append_unique_hosts(self, entries: list[str]) -> SSHResult:
-        """Append hosts lines if not already present."""
-        script_parts = ["set -e"]
+        """Append hosts lines if not already present (backs up /etc/hosts once)."""
+        script_parts = [
+            "set -e",
+            "if [ -f /etc/hosts ] && [ ! -f /etc/hosts.sipauto.bak ]; then "
+            "cp -a /etc/hosts /etc/hosts.sipauto.bak; fi",
+        ]
         for line in entries:
-            ip, _, name = line.partition(" ")
+            _ip, _, name = line.partition(" ")
             name = name.strip()
             script_parts.append(
                 f"grep -qE '(^|\\s){name}(\\s|$)' /etc/hosts || echo '{line}' >> /etc/hosts"

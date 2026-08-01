@@ -1,11 +1,14 @@
 """SIPAUTO CLI.
 
 Recommended flow:
-  1) sipauto generate          # asks which NIC for SIP
-  2) sipauto verify [--ssh]
-  3) sipauto apply-net --ssh   # asks again unless already chosen / --interface
-  4) sipauto apply-sip --ssh   # asks before Ameyo write
-  5) sipauto reload --ssh
+  sipauto wizard                 # guided: provider → sheet → NIC → generate → preflight → apply
+  or step-by-step:
+  1) sipauto parse-sheet
+  2) sipauto generate            # asks which NIC for SIP
+  3) sipauto preflight [--ssh]
+  4) sipauto apply-net / apply-sip
+  5) sipauto registry-watch
+  6) sipauto rollback            # if needed
 """
 
 from __future__ import annotations
@@ -15,20 +18,27 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+import yaml
 from rich.console import Console
 from rich.table import Table
 
 from sipauto import __version__
+from sipauto.models import Platform, Provider
 from sipauto.network.interfaces import (
     choose_interface,
     discover_interfaces,
     print_interfaces,
     save_interface_to_inventory,
 )
+from sipauto.parser.carrier_sheet import parse_carrier_sheet
 from sipauto.workflow.apply import apply_network, apply_sip, reload_services
 from sipauto.workflow.generate import generate
 from sipauto.workflow.inventory_io import load_inventory
+from sipauto.workflow.preflight import run_preflight
+from sipauto.workflow.registry import diagnose_text, watch_registry
+from sipauto.workflow.rollback import plan_rollback, rollback
 from sipauto.workflow.verify import verify
+from sipauto.workflow.wizard import run_wizard
 
 app = typer.Typer(
     name="sipauto",
@@ -369,6 +379,194 @@ def run_cmd(
     for line in reload_services(inv, dry_run=False):
         console.print(line)
     console.print("[green]Done[/green]")
+
+
+@app.command("wizard")
+def wizard_cmd(
+    out: Path = typer.Option(Path("out"), "--out", "-o"),
+    sheet: Optional[Path] = typer.Option(
+        None, "--sheet", "-s", exists=True, readable=True, help="Carrier sheet text file"
+    ),
+    inventory_out: Optional[Path] = typer.Option(
+        None, "--inventory-out", help="Where to write generated inventory YAML"
+    ),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p"),
+    platform: str = typer.Option("ameyo_asterisk", "--platform"),
+    site: Optional[str] = typer.Option(None, "--site"),
+    interface: Optional[str] = typer.Option(None, "--interface", "-I"),
+    skip_apply: bool = typer.Option(False, "--skip-apply"),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Non-interactive (requires --sheet and --provider)"
+    ),
+) -> None:
+    """Guided flow: provider → paste sheet → NIC → generate → preflight → optional apply."""
+    if yes and (not sheet or not provider):
+        console.print("[red]--yes requires --sheet and --provider[/red]")
+        raise typer.Exit(2)
+    path = run_wizard(
+        out_root=out,
+        sheet_file=sheet,
+        inventory_out=inventory_out,
+        provider=Provider(provider) if provider else None,
+        platform=Platform(platform),
+        site_name=site,
+        interface=interface,
+        skip_apply=skip_apply or yes,
+        non_interactive=yes,
+    )
+    console.print(f"Inventory: {path}")
+
+
+@app.command("parse-sheet")
+def parse_sheet_cmd(
+    sheet: Optional[Path] = typer.Option(
+        None, "--sheet", "-s", exists=True, readable=True, help="Text file (else stdin)"
+    ),
+    provider: Optional[str] = typer.Option(
+        None, "--provider", "-p", help="tata|jio|airtel|vodafone"
+    ),
+    site: str = typer.Option("parsed-site", "--site"),
+    interface: str = typer.Option("eth1", "--interface", "-I"),
+    platform: str = typer.Option("ameyo_asterisk", "--platform"),
+    out: Path = typer.Option(Path("out/parsed-inventory.yaml"), "--out", "-o"),
+) -> None:
+    """Parse carrier delivery sheet/email text into inventory YAML."""
+    if sheet:
+        text = sheet.read_text(encoding="utf-8")
+    else:
+        import sys
+
+        if sys.stdin.isatty():
+            console.print("[red]Provide --sheet FILE or pipe text on stdin[/red]")
+            raise typer.Exit(2)
+        text = sys.stdin.read()
+    hint = Provider(provider) if provider else None
+    parsed = parse_carrier_sheet(text, hint_provider=hint)
+    table = Table(title=f"Parse confidence {parsed.confidence:.0%}")
+    table.add_column("Field")
+    table.add_column("Value")
+    for k, v in parsed.raw_hits.items():
+        table.add_row(k, v)
+    table.add_row("media_ips", ", ".join(parsed.media_ips) or "-")
+    table.add_row("provider", (parsed.provider.value if parsed.provider else "-"))
+    console.print(table)
+    for w in parsed.warnings:
+        console.print(f"[yellow]WARN[/yellow] {w}")
+    if parsed.missing_required():
+        console.print(f"[red]Missing:[/red] {', '.join(parsed.missing_required())}")
+        raise typer.Exit(2)
+    plat = Platform(platform)
+    inv = parsed.to_inventory(
+        site_name=site,
+        interface=interface,
+        platform=plat,
+        provider=hint or parsed.provider,
+    )
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(inv.model_dump(mode="json"), sort_keys=False), encoding="utf-8")
+    console.print(f"[green]Wrote[/green] {out}")
+
+
+@app.command("preflight")
+def preflight_cmd(
+    inventory: Path = typer.Option(..., "--inventory", "-i", exists=True, readable=True),
+    ssh: bool = typer.Option(False, "--ssh"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o"),
+) -> None:
+    """Pre-flight checklist with GREEN/YELLOW/RED before apply."""
+    inv = load_inventory(inventory)
+    report = run_preflight(inv, use_ssh=ssh)
+    table = Table(title=f"Preflight — {report.confidence}")
+    table.add_column("Check")
+    table.add_column("OK")
+    table.add_column("Severity")
+    table.add_column("Detail")
+    for c in report.checks:
+        table.add_row(c.name, "yes" if c.ok else "no", c.severity, c.detail)
+    console.print(table)
+    if report.next_actions:
+        console.print("[bold]Next actions[/bold]")
+        for n in report.next_actions:
+            console.print(f"  • {n}")
+    dest = out or _out_dir(inventory, None)
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "preflight_report.json").write_text(report.model_dump_json(indent=2) + "\n")
+    if report.confidence == "RED":
+        raise typer.Exit(1)
+    if report.confidence == "YELLOW":
+        raise typer.Exit(3)
+
+
+@app.command("registry-watch")
+def registry_watch_cmd(
+    inventory: Path = typer.Option(..., "--inventory", "-i", exists=True, readable=True),
+    polls: int = typer.Option(5, "--polls"),
+    interval: float = typer.Option(3.0, "--interval"),
+    options: bool = typer.Option(True, "--options/--no-options"),
+    dial: Optional[str] = typer.Option(None, "--dial", help="Optional originate test number"),
+    out: Optional[Path] = typer.Option(None, "--out", "-o"),
+) -> None:
+    """Poll sip/pjsip registry, OPTIONS probe, map 407/403/480 to fixes."""
+    inv = load_inventory(inventory)
+    result = watch_registry(
+        inv, polls=polls, interval=interval, options_probe=options, dial_test=dial
+    )
+    console.print(
+        f"Registered=[bold]{result.registered}[/bold]  OPTIONS={result.options_ok}  "
+        f"errors={result.errors_seen or '-'}"
+    )
+    for c in result.checks:
+        mark = "OK" if c.ok else "FAIL"
+        console.print(f"  [{mark}] {c.name}: {c.detail}")
+    for pb in result.playbooks:
+        console.print(f"[yellow]Playbook:[/yellow] {pb}")
+    dest = out or _out_dir(inventory, None)
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "registry_watch.txt").write_text(result.raw, encoding="utf-8")
+    if not result.registered and inv.provider.value not in ("jio", "vodafone"):
+        raise typer.Exit(1)
+
+
+@app.command("diagnose")
+def diagnose_cmd(
+    text: Optional[str] = typer.Argument(None, help="Error snippet"),
+    file: Optional[Path] = typer.Option(None, "--file", "-f", exists=True),
+) -> None:
+    """Map SIP error text (407/403/480/…) to documented fixes."""
+    blob = file.read_text(encoding="utf-8") if file else (text or "")
+    if not blob.strip():
+        console.print("Provide text or --file")
+        raise typer.Exit(2)
+    hits = diagnose_text(blob)
+    if not hits:
+        console.print("No known SIP error codes found in text")
+        raise typer.Exit(1)
+    for h in hits:
+        console.print(f"• {h}")
+
+
+@app.command("rollback")
+def rollback_cmd(
+    inventory: Path = typer.Option(..., "--inventory", "-i", exists=True, readable=True),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+) -> None:
+    """Restore *.sipauto.bak (ifcfg/routes/hosts/asterisk includes) and reload."""
+    inv = load_inventory(inventory)
+    plan = plan_rollback(inv)
+    console.print("[bold]Rollback plan[/bold]")
+    for a in plan.actions:
+        console.print(f"  {a}")
+    if not plan.backups and not dry_run:
+        console.print("[yellow]No backups found[/yellow]")
+        raise typer.Exit(1)
+    if dry_run:
+        return
+    if not yes:
+        typer.confirm("Restore backups now?", abort=True)
+    for line in rollback(inv, dry_run=False):
+        console.print(line)
+    console.print("[green]Rollback complete[/green]")
 
 
 if __name__ == "__main__":

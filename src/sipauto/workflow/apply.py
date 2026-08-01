@@ -10,6 +10,7 @@ from sipauto.platforms.ameyo import AMEYO_WRITE_WARNING, ameyo_write_plan
 from sipauto.platforms.asterisk import network_reload_commands, reload_commands
 from sipauto.providers import get_provider
 from sipauto.ssh import SSHClient, SSHResult
+from sipauto.workflow.rollback import write_apply_manifest
 
 
 def _require_ssh(inv: Inventory) -> None:
@@ -24,31 +25,36 @@ def apply_network(inv: Inventory, *, dry_run: bool = False) -> list[str]:
     paths = apply_paths(inv)
     ifcfg = render_ifcfg(inv)
     routes = render_route_file(inv)
-    hosts = render_hosts_snippet(artifacts)
 
     plan = [
-        f"WRITE {paths['ifcfg']}",
-        f"WRITE {paths['route']}",
+        f"WRITE {paths['ifcfg']} (backup *.sipauto.bak)",
+        f"WRITE {paths['route']} (backup *.sipauto.bak)",
     ]
     if artifacts.hosts_entries:
-        plan.append(f"APPEND unique hosts entries to {paths['hosts']}")
+        plan.append(f"APPEND unique hosts entries to {paths['hosts']} (backup once)")
     plan.extend(network_reload_commands(inv.network.interface))
 
     if dry_run:
         return plan
 
     logs: list[str] = []
+    written: list[str] = []
     with SSHClient(inv.ssh) as client:  # type: ignore[arg-type]
         client.write_file(paths["ifcfg"], ifcfg)
         logs.append(f"wrote {paths['ifcfg']}")
+        written.append(paths["ifcfg"])
         client.write_file(paths["route"], routes)
         logs.append(f"wrote {paths['route']}")
+        written.append(paths["route"])
         if artifacts.hosts_entries:
             r = client.append_unique_hosts(artifacts.hosts_entries)
             logs.append(r.stdout + r.stderr)
+            written.append(paths["hosts"])
         for cmd in network_reload_commands(inv.network.interface):
             r = client.run(cmd)
             logs.append(f"$ {cmd}\n{r.stdout}{r.stderr}")
+        write_apply_manifest(client, inv, written)
+        logs.append("wrote apply manifest /var/tmp/sipauto-last-apply.json")
     return logs
 
 
@@ -99,12 +105,14 @@ def apply_sip(
         logs.append(AMEYO_WRITE_WARNING)
 
     if dry_run:
-        return logs + [f"WRITE {p}" for p in remote_files]
+        return logs + [f"WRITE {p} (backup *.sipauto.bak)" for p in remote_files]
 
+    written: list[str] = []
     with SSHClient(inv.ssh) as client:  # type: ignore[arg-type]
         for remote, content in remote_files.items():
             client.write_file(remote, content)
             logs.append(f"wrote {remote}")
+            written.append(remote)
             # ensure include line for peer files
             if remote.endswith("_peer.conf"):
                 logs.append(
@@ -113,6 +121,9 @@ def apply_sip(
             if remote.endswith("_pjsip.conf"):
                 pjsip_conf = f"{inv.ameyo.asterisk_etc if inv.platform != Platform.FREEPBX else inv.freepbx.asterisk_etc}/pjsip.conf"
                 logs.append(_ensure_include(client, pjsip_conf, Path(remote).name).stdout)
+        # merge with any prior network apply manifest
+        write_apply_manifest(client, inv, written)
+        logs.append("updated apply manifest /var/tmp/sipauto-last-apply.json")
     return logs
 
 

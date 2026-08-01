@@ -15,10 +15,12 @@ pip install -e ".[dev]"
 ### Standard commands
 
 - Lint/tests: `pytest -q`
-- Generate: `sipauto generate -i examples/inventories/tata_ameyo.yaml` (asks SIP NIC by default)
-- Non-interactive generate: add `--no-ask-iface` or `-I eth1`
-- List NICs: `sipauto ifaces` / `sipauto ifaces -i … --ssh`
-- Full local demo without SSH: `sipauto run -i examples/inventories/tata_ameyo.yaml --no-ask-iface`
+- Wizard: `sipauto wizard --sheet examples/carrier_sheets/tata_sample.txt`
+- Parse sheet: `sipauto parse-sheet -s examples/carrier_sheets/tata_sample.txt -o out/inv.yaml`
+- Generate: `sipauto generate -i …` (asks SIP NIC by default; use `--no-ask-iface` in CI)
+- Preflight: `sipauto preflight -i … [--ssh]` (exit 1=RED, 3=YELLOW)
+- Registry: `sipauto registry-watch -i …` (needs SSH)
+- Rollback: `sipauto rollback -i … --dry-run` then `--yes`
 - SSH apply requires `ssh:` in inventory and network access to the call server
 
 ### Gotchas

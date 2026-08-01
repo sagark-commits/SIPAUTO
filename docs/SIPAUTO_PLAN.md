@@ -286,6 +286,16 @@ Web UI later if desired; CLI first matches on-prem engineer workflow.
 
 ---
 
+## 11. Implemented high-impact features (MVP+)
+
+| Feature | Command |
+|---------|---------|
+| Guided wizard | `sipauto wizard` |
+| Carrier sheet parser | `sipauto parse-sheet` |
+| Preflight scores | `sipauto preflight` |
+| Registry + OPTIONS + playbooks | `sipauto registry-watch` / `diagnose` |
+| Rollback `*.sipauto.bak` | `sipauto rollback` |
+
 ## 11. Suggested next implementation slice (after approval)
 
 1. Scaffold Python package `sipauto` with inventory schema + three provider templates.  

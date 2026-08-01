@@ -71,6 +71,9 @@ class SipConfig(BaseModel):
     register_expiry: int = 300
     dtmf_mode: str = "rfc2833"
     require_register: Optional[bool] = None  # provider default if None
+    dids: list[str] = Field(default_factory=list)
+    did_start: Optional[str] = None
+    did_end: Optional[str] = None
 
 
 class AmeyoConfig(BaseModel):

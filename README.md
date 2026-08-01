@@ -5,7 +5,15 @@ Automate on-prem SIP trunk configuration for **Ameyo + Asterisk** and **FreePBX*
 ## Recommended flow
 
 ```text
-generate → verify → apply-net (SSH) → apply-sip (SSH; Ameyo write asked) → reload
+wizard  (or)  parse-sheet → generate → preflight → apply-net → apply-sip → registry-watch
+                                                              ↘ rollback if needed
+```
+
+### Guided wizard
+
+```bash
+sipauto wizard --sheet examples/carrier_sheets/tata_sample.txt
+# interactive: provider → sheet fields → NIC → generate → preflight → ask before apply
 ```
 
 ```bash
@@ -57,6 +65,17 @@ Set `ssh:` in inventory for remote apply/verify/reload.
 
 - **SIP signaling:** TCP and UDP to SBC port (default `5060`), both sides.
 - **RTP:** UDP **10000–40000** both sides (local firewall + carrier). Sampled probes + `rtp.conf` / firewall inspection over SSH.
+
+## High-impact commands
+
+| Command | Purpose |
+|---------|---------|
+| `sipauto wizard` | Full guided setup |
+| `sipauto parse-sheet -s sheet.txt -o inv.yaml` | Carrier email/sheet → inventory |
+| `sipauto preflight -i inv.yaml --ssh` | GREEN/YELLOW/RED before apply |
+| `sipauto registry-watch -i inv.yaml [--dial NUMBER]` | Registry + OPTIONS + 407/403/480 playbooks |
+| `sipauto diagnose "407 Proxy…"` | Map error text to fix |
+| `sipauto rollback -i inv.yaml` | Restore `*.sipauto.bak` + reload |
 
 ## Docs
 
