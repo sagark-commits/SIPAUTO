@@ -111,11 +111,18 @@ out/my-tata/
 ### A) Parse carrier sheet → inventory
 
 ```bash
+# Lists real NICs on this host, then asks which one is for SIP
+./scripts/run_offline.sh parse-sheet \
+  -s examples/carrier_sheets/tata_sample.txt \
+  -o out/tata/inventory.yaml \
+  --site prod-tata
+
+# Or force a NIC without prompting:
 ./scripts/run_offline.sh parse-sheet \
   -s examples/carrier_sheets/tata_sample.txt \
   -o out/tata/inventory.yaml \
   --site prod-tata \
-  -I eth1
+  -I ens224 --no-ask-iface
 ```
 
 Other providers:
@@ -156,11 +163,16 @@ Media IP: 10.0.76.12
 ### D) Preflight (before you change the server)
 
 ```bash
+# Shows available NICs, asks which to use for SIP, saves into inventory, then scores
 ./scripts/run_offline.sh preflight -i out/tata/inventory.yaml
-# with SSH configured in inventory:
+
+# with SSH configured in inventory (discover NICs on remote call server):
 ./scripts/run_offline.sh preflight -i out/tata/inventory.yaml --ssh
+
 echo $?    # 0 = GREEN, 3 = YELLOW, 1 = RED
 ```
+
+If the inventory still has a fake name like `eth1`/`eth2`, preflight will list real interfaces (e.g. `ens192`, `ens224`) and ask you to pick one.
 
 ### E) Apply (on the call server)
 

@@ -178,65 +178,85 @@ def print_interfaces(nics: list[NicInfo], default: Optional[str] = None) -> None
         console.print(f"* inventory default: {default}")
 
 
-def choose_interface(
-    inv: Inventory,
+def _discover_for_picker(
     *,
-    ask: bool = True,
-    interface: Optional[str] = None,
-    use_ssh: bool = False,
+    ssh: Optional[SSHConfig] = None,
     include_virtual: bool = False,
-    non_interactive_default: bool = False,
-) -> str:
-    if interface:
-        inv.network.interface = interface
-        return interface
-
-    default = inv.network.interface
-    if not ask or non_interactive_default or not console.is_terminal:
-        return default
-
-    ssh_cfg = inv.ssh if use_ssh and inv.ssh else None
-    where = f"SSH {ssh_cfg.host}" if ssh_cfg else "local host"
-    console.print(f"Discovering interfaces on {where}…")
+) -> list[NicInfo]:
     try:
-        nics = discover_interfaces(ssh=ssh_cfg, include_virtual=include_virtual)
+        return discover_interfaces(ssh=ssh, include_virtual=include_virtual)
     except (SSHError, Exception) as exc:  # noqa: BLE001
-        console.print(f"Could not discover interfaces ({exc}). Using inventory: {default}")
-        # fall back to local if SSH failed
-        if ssh_cfg:
+        console.print(f"Could not discover interfaces ({exc}).")
+        if ssh:
+            console.print("Falling back to LOCAL interface list.")
             try:
-                nics = discover_interfaces(ssh=None, include_virtual=include_virtual)
-                console.print("Falling back to LOCAL interface list.")
-            except Exception:
-                return default
-        else:
-            return default
+                return discover_interfaces(ssh=None, include_virtual=include_virtual)
+            except Exception as exc2:  # noqa: BLE001
+                console.print(f"Local discovery also failed: {exc2}")
+                return []
+        return []
 
+
+def prompt_sip_interface(
+    *,
+    prefer: Optional[str] = None,
+    ssh: Optional[SSHConfig] = None,
+    include_virtual: bool = False,
+    interactive: bool = True,
+    force_prompt: bool = False,
+) -> str:
+    """
+    List available NICs and let the operator pick which one is for SIP.
+
+    - If only one candidate NIC → auto-select
+    - If prefer exists on the host and interactive+force_prompt is false → use prefer
+      (but still prompt when prefer is missing)
+    - Always prompts when interactive and (prefer missing OR force_prompt)
+    """
+    where = f"SSH {ssh.host}" if ssh else "local host"
+    console.print(f"Discovering interfaces on {where}…")
+    nics = _discover_for_picker(ssh=ssh, include_virtual=include_virtual)
     if not nics:
-        console.print(f"No interfaces found. Using inventory: {default}")
-        return default
+        fallback = prefer or "eth1"
+        console.print(f"No interfaces found. Using: {fallback}")
+        return fallback
 
-    # Auto-select when only one physical NIC and default missing/wrong
-    if len(nics) == 1:
+    names = {n.name for n in nics}
+    prefer_ok = bool(prefer and prefer in names)
+
+    if len(nics) == 1 and not force_prompt:
         chosen = nics[0].name
         console.print(f"Only one candidate NIC — auto-selected: {chosen}")
-        inv.network.interface = chosen
         console.print(nics[0].summary)
         return chosen
+
+    # Non-interactive: prefer if present, else first UP/link-yes
+    if not interactive or not console.is_terminal:
+        if prefer_ok:
+            return prefer  # type: ignore[return-value]
+        up = next((n.name for n in nics if n.state == "UP" and n.link != "no"), nics[0].name)
+        console.print(f"Non-interactive: selected SIP interface {up}")
+        return up
+
+    # Interactive: always show the table so the operator can choose
+    default = prefer if prefer_ok else None
+    if default is None:
+        default = next(
+            (n.name for n in nics if n.state == "UP" and n.link != "no"),
+            nics[0].name,
+        )
+    if prefer and not prefer_ok:
+        console.print(
+            f"[yellow]Configured interface {prefer!r} was not found on this host.[/yellow]"
+        )
 
     print_interfaces(nics, default=default)
     for nic in nics:
         if nic.name == default and nic.link == "no":
             console.print(
-                f"Warning: inventory iface {default} has link=no "
+                f"Warning: {default} has link=no "
                 "(check cable / mux speed / duplex with carrier)."
             )
-
-    names = {n.name for n in nics}
-    # prefer default if present, else first UP+link yes
-    if default not in names:
-        up = next((n.name for n in nics if n.state == "UP" and n.link != "no"), nics[0].name)
-        default = up
 
     while True:
         raw = ask("Which interface should be used for SIP?", default=default)
@@ -257,7 +277,6 @@ def choose_interface(
             continue
         console.print("Invalid interface name.")
 
-    inv.network.interface = chosen
     selected = next((n for n in nics if n.name == chosen), None)
     if selected:
         console.print(f"Selected SIP interface: {selected.summary}")
@@ -267,6 +286,37 @@ def choose_interface(
             )
     else:
         console.print(f"Selected SIP interface: {chosen}")
+    return chosen
+
+
+def choose_interface(
+    inv: Inventory,
+    *,
+    ask: bool = True,
+    interface: Optional[str] = None,
+    use_ssh: bool = False,
+    include_virtual: bool = False,
+    non_interactive_default: bool = False,
+    force_prompt: bool = False,
+) -> str:
+    """Pick SIP NIC for an inventory (lists NICs; re-prompts if -I is missing on host)."""
+    prefer = interface or inv.network.interface
+    ssh_cfg = inv.ssh if use_ssh and inv.ssh else None
+    interactive = ask and not non_interactive_default
+
+    # If caller forced a specific iface, still verify it exists — otherwise prompt
+    if interface and not force_prompt and not interactive:
+        inv.network.interface = interface
+        return interface
+
+    chosen = prompt_sip_interface(
+        prefer=prefer,
+        ssh=ssh_cfg,
+        include_virtual=include_virtual,
+        interactive=interactive,
+        force_prompt=force_prompt or ask,
+    )
+    inv.network.interface = chosen
     return chosen
 
 

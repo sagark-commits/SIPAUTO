@@ -21,6 +21,7 @@ from sipauto.network.interfaces import (
     choose_interface,
     discover_interfaces,
     print_interfaces,
+    prompt_sip_interface,
     save_interface_to_inventory,
 )
 from sipauto.parser.carrier_sheet import parse_carrier_sheet
@@ -219,7 +220,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-s", "--sheet", type=Path)
     p.add_argument("-p", "--provider")
     p.add_argument("--site", default="parsed-site")
-    p.add_argument("-I", "--interface", default="eth1")
+    p.add_argument(
+        "-I",
+        "--interface",
+        default=None,
+        help="SIP NIC (if omitted, lists available NICs and asks)",
+    )
+    p.add_argument(
+        "--ask-iface",
+        action="store_true",
+        default=True,
+        help="List NICs and ask which to use for SIP (default)",
+    )
+    p.add_argument("--no-ask-iface", action="store_false", dest="ask_iface")
     p.add_argument("--platform", default="ameyo_asterisk")
     p.add_argument("-o", "--out", type=Path, default=Path("out/parsed-inventory.yaml"))
     p.set_defaults(func=cmd_parse_sheet)
@@ -228,6 +241,25 @@ def build_parser() -> argparse.ArgumentParser:
     _add_inv(p)
     p.add_argument("--ssh", action="store_true")
     p.add_argument("-o", "--out", type=Path)
+    p.add_argument(
+        "--ask-iface",
+        action="store_true",
+        default=True,
+        help="If inventory NIC is missing, list NICs and ask which to use (default)",
+    )
+    p.add_argument("--no-ask-iface", action="store_false", dest="ask_iface")
+    p.add_argument(
+        "-I",
+        "--interface",
+        help="Force SIP NIC (saved into inventory) before running checks",
+    )
+    p.add_argument(
+        "--save-iface",
+        action="store_true",
+        default=True,
+        help="Write chosen interface back into inventory (default)",
+    )
+    p.add_argument("--no-save-iface", action="store_false", dest="save_iface")
     p.set_defaults(func=cmd_preflight)
 
     p = sub.add_parser("registry-watch", help="Poll SIP registry")
@@ -489,21 +521,51 @@ def cmd_parse_sheet(args: argparse.Namespace) -> int:
     if parsed.missing_required():
         console.print(f"[red]Missing:[/red] {', '.join(parsed.missing_required())}")
         return 2
+
+    # List available NICs and let the operator choose which one is for SIP
+    console.print("")
+    iface = prompt_sip_interface(
+        prefer=args.interface,
+        interactive=bool(args.ask_iface),
+        force_prompt=bool(args.ask_iface),
+    )
+
     plat = Platform(args.platform)
     inv = parsed.to_inventory(
         site_name=args.site,
-        interface=args.interface,
+        interface=iface,
         platform=plat,
         provider=hint or parsed.provider,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     save_inventory(args.out, inv)
-    console.print(f"[green]Wrote[/green] {args.out}")
+    console.print(f"[green]Wrote[/green] {args.out}  (SIP iface={iface})")
     return 0
 
 
 def cmd_preflight(args: argparse.Namespace) -> int:
     inv = load_inventory(args.inventory)
+
+    # Resolve SIP NIC first: list available interfaces and let operator choose
+    need_pick = bool(args.interface) or bool(args.ask_iface)
+    if need_pick:
+        console.print("Step: choose SIP interface for preflight")
+        chosen = choose_interface(
+            inv,
+            ask=bool(args.ask_iface),
+            interface=args.interface,
+            use_ssh=bool(args.ssh),
+            force_prompt=bool(args.ask_iface),
+            non_interactive_default=not args.ask_iface and not args.interface,
+        )
+        if args.save_iface and chosen != load_inventory(args.inventory).network.interface:
+            save_interface_to_inventory(str(args.inventory), chosen)
+            console.print(f"[green]Saved[/green] network.interface={chosen} → {args.inventory}")
+        elif args.save_iface:
+            save_interface_to_inventory(str(args.inventory), chosen)
+            console.print(f"[green]Saved[/green] network.interface={chosen} → {args.inventory}")
+        inv.network.interface = chosen
+
     report = run_preflight(inv, use_ssh=args.ssh)
     print_table(
         f"Preflight — {report.confidence}",

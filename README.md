@@ -26,9 +26,10 @@ Already on the Ameyo host? Answer **n** to SSH, then apply with `--local`.
 ## Common commands
 
 ```bash
-./scripts/run_offline.sh parse-sheet -s examples/carrier_sheets/tata_sample.txt -o out/inv.yaml --site mysite -I eth1
-./scripts/run_offline.sh generate -i out/inv.yaml -I eth1 --no-ask-iface
-./scripts/run_offline.sh preflight -i out/inv.yaml
+# parse-sheet / preflight list real NICs and ask which one is for SIP
+./scripts/run_offline.sh parse-sheet -s examples/carrier_sheets/tata_sample.txt -o out/inv.yaml --site mysite
+./scripts/run_offline.sh generate -i out/inv.yaml          # asks SIP NIC
+./scripts/run_offline.sh preflight -i out/inv.yaml         # asks SIP NIC if needed, saves it
 ./scripts/run_offline.sh apply-net -i out/inv.yaml --local --yes
 ./scripts/run_offline.sh apply-sip -i out/inv.yaml --ameyo-write --local --yes
 ./scripts/run_offline.sh registry-watch -i out/inv.yaml

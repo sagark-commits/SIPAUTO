@@ -31,6 +31,7 @@ def test_parse_sheet_cli(tmp_path):
             "cli-tata",
             "-I",
             "eth1",
+            "--no-ask-iface",
         ]
     )
     assert r.exit_code == 0, r.output
