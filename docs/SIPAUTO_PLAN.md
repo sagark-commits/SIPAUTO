@@ -1,9 +1,10 @@
 # SIPAUTO — SIP Configuration Automation Plan
 
-**Status:** MVP implemented (`sipauto` CLI)  
+**Status:** MVP+ implemented (`sipauto` CLI) — see [HOW_TO_USE.md](HOW_TO_USE.md)  
 **Scope (phase 1):** On-prem **Ameyo+Asterisk** and **FreePBX** on **Rocky/RHEL** with Indian carrier Ethernet SIP trunks (**Tata / Jio / Airtel / Vodafone-Idea**)  
-**Flow:** `generate → verify → SSH apply-net/apply-sip/reload` (Ameyo write optional, prompted)  
+**Flow:** `wizard` / `parse-sheet → generate → preflight → SSH apply-net/apply-sip/reload → registry-watch` (Ameyo write optional; `rollback` available)  
 **Ports:** SIP TCP+UDP; RTP UDP **10000–40000** both sides  
+**Docs:** [HOW_TO_USE.md](HOW_TO_USE.md) (commands & examples), this plan (architecture)  
 **Later:** Cloud / shared deployment modes
 
 ---

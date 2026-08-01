@@ -4,7 +4,7 @@
 
 ### Product
 
-`sipauto` is a Python CLI that generates/verifies/applies on-prem SIP trunk config for Ameyo+Asterisk and FreePBX (Rocky/RHEL) for Tata/Jio/Airtel/Vodafone-Idea.
+`sipauto` is a Python CLI that automates on-prem SIP trunk setup for Ameyo+Asterisk and FreePBX (Rocky/RHEL) for Tata/Jio/Airtel/Vodafone-Idea. It includes a guided wizard, carrier-sheet parser, NIC picker, preflight scoring, SSH apply/reload, registry watch with SIP error playbooks, and `*.sipauto.bak` rollback. Operator docs: `docs/HOW_TO_USE.md`.
 
 ### Setup
 

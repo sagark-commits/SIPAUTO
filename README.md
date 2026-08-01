@@ -1,6 +1,8 @@
 # SIPAUTO
 
-Automate on-prem SIP trunk configuration for **Ameyo + Asterisk** and **FreePBX** on **Rocky / Red Hat**, for Indian carriers **Tata, Jio, Airtel, Vodafone-Idea**.
+**Configure SIP with Automation** — interactive CLI to provision on-prem SIP trunks for **Ameyo + Asterisk** and **FreePBX** on **Rocky / Red Hat**, for **Tata, Jio, Airtel, and Vodafone-Idea**.
+
+Paste a carrier sheet → pick the SIP NIC → generate configs → preflight (GREEN/YELLOW/RED) → SSH apply/reload → watch registry → roll back if needed.
 
 ## How to use
 

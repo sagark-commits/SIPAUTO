@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sipauto"
 version = "0.1.0"
-description = "Automate on-prem SIP trunk configuration for Ameyo/Asterisk/FreePBX (Tata, Jio, Airtel, Vodafone)"
+description = "Interactive on-prem SIP trunk automation for Ameyo/Asterisk/FreePBX (Tata, Jio, Airtel, Vodafone-Idea): wizard, carrier-sheet parser, NIC picker, preflight, SSH apply/reload, registry watch, rollback"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
